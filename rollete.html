@@ -1,0 +1,609 @@
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import {
+  Monitor,
+  MonitorOff,
+  Cpu,
+  Activity,
+  BarChart3,
+  ShieldAlert,
+  Sparkles,
+  History,
+  Play,
+  RefreshCw,
+  CheckCircle2,
+  AlertTriangle,
+  Eye,
+  Terminal,
+  Layers,
+  Zap,
+  ScanLine,
+  BrainCircuit,
+  Smartphone,
+  Edit3,
+  Plus,
+  Trash2,
+  Radio
+} from 'lucide-react';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid
+} from 'recharts';
+
+// Standard European Roulette Red Numbers
+const RED_NUMBERS = new Set([
+  1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36
+]);
+
+// Sample 50 Spins Dataset for instant testing
+const SAMPLE_SPINS = [
+  0, 2, 7, 35, 0, 11, 11,
+  14, 31, 12, 26, 26, 29, 8, 32,
+  14, 31, 10, 7, 26, 4, 19, 18,
+  22, 7, 7, 33, 26, 28, 29, 35,
+  27, 35, 16, 0, 11, 36, 34,
+  22, 7, 35, 35, 0, 31, 34,
+  3, 19, 2, 12, 25
+];
+
+// Helper to classify any roulette number (0-36)
+const getNumberMeta = (num) => {
+  if (num === 0) {
+    return {
+      color: 'green',
+      dozen: 0,
+      column: 0,
+      bgClass:
+        'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.25)]'
+    };
+  }
+  const isRed = RED_NUMBERS.has(num);
+  const dozen = num <= 12 ? 1 : num <= 24 ? 2 : 3;
+  const column = num % 3 === 1 ? 1 : num % 3 === 2 ? 2 : 3;
+
+  return {
+    color: isRed ? 'red' : 'black',
+    dozen,
+    column,
+    bgClass: isRed
+      ? 'bg-rose-500/20 border-rose-500/80 text-rose-200 shadow-[0_0_10px_rgba(244,63,94,0.2)]'
+      : 'bg-slate-800/90 border-slate-600 text-slate-200'
+  };
+};
+
+// Multi-Window Statistical, Momentum & Sleeper Drought Analyzer (20-Yr Veteran Engine)
+const analyzeSpinsStatistics = (spins) => {
+  const validSpins = spins.filter((n) => typeof n === 'number' && n >= 0 && n <= 36);
+  const total = validSpins.length || 1;
+
+  let redCount = 0;
+  let blackCount = 0;
+  let zeroCount = 0;
+
+  const dozenCounts = [0, 0, 0]; // D1 (1-12), D2 (13-24), D3 (25-36)
+  const columnCounts = [0, 0, 0]; // C1 (1-34), C2 (2-35), C3 (3-36)
+
+  // Track sleeper droughts (spins since last hit, index 0 = newest)
+  const dozenDrought = [0, 0, 0];
+  const columnDrought = [0, 0, 0];
+
+  // Multi-window slices: Last 10 (hot momentum) & Last 25 (sector drift)
+  const window10 = validSpins.slice(0, 10);
+  const window25 = validSpins.slice(0, 25);
+
+  const hotDozen10 = [0, 0, 0];
+  const hotCol10 = [0, 0, 0];
+  const driftDozen25 = [0, 0, 0];
+  const driftCol25 = [0, 0, 0];
+
+  validSpins.forEach((n, idx) => {
+    const meta = getNumberMeta(n);
+    if (meta.color === 'green') zeroCount++;
+    else if (meta.color === 'red') redCount++;
+    else blackCount++;
+
+    if (meta.dozen > 0) dozenCounts[meta.dozen - 1]++;
+    if (meta.column > 0) columnCounts[meta.column - 1]++;
+
+    if (idx < 10) {
+      if (meta.dozen > 0) hotDozen10[meta.dozen - 1]++;
+      if (meta.column > 0) hotCol10[meta.column - 1]++;
+    }
+    if (idx < 25) {
+      if (meta.dozen > 0) driftDozen25[meta.dozen - 1]++;
+      if (meta.column > 0) driftCol25[meta.column - 1]++;
+    }
+  });
+
+  // Calculate exact sleeper droughts from newest spin
+  for (let d = 1; d <= 3; d++) {
+    const firstDozenIdx = validSpins.findIndex((n) => getNumberMeta(n).dozen === d);
+    dozenDrought[d - 1] = firstDozenIdx === -1 ? total : firstDozenIdx;
+
+    const firstColIdx = validSpins.findIndex((n) => getNumberMeta(n).column === d);
+    columnDrought[d - 1] = firstColIdx === -1 ? total : firstColIdx;
+  }
+
+  // Hybrid 20-Yr Veteran weighting:
+  // Blends short-term hot momentum (10 spins), mid-window drift (25 spins), and sleeper drought pressure
+  const rawDozenWeights = [0, 1, 2].map((i) => {
+    const fullShare = dozenCounts[i] / total;
+    const driftShare = driftDozen25[i] / Math.max(1, window25.length);
+    const hotShare = hotDozen10[i] / Math.max(1, window10.length);
+    const sleeperPressure = Math.min(dozenDrought[i] * 0.022, 0.19);
+
+    const score =
+      0.333 +
+      (hotShare - 0.333) * 0.38 +
+      (driftShare - 0.333) * 0.24 +
+      sleeperPressure -
+      (fullShare - 0.324) * 0.2;
+
+    return Math.max(0.11, score);
+  });
+
+  const dozenSum = rawDozenWeights.reduce((a, b) => a + b, 0);
+  const dozenProbs = rawDozenWeights.map((w) => Math.round((w / dozenSum) * 100));
+  dozenProbs[0] += 100 - dozenProbs.reduce((a, b) => a + b, 0);
+
+  const rawColWeights = [0, 1, 2].map((i) => {
+    const fullShare = columnCounts[i] / total;
+    const driftShare = driftCol25[i] / Math.max(1, window25.length);
+    const hotShare = hotCol10[i] / Math.max(1, window10.length);
+    const sleeperPressure = Math.min(columnDrought[i] * 0.022, 0.19);
+
+    const score =
+      0.333 +
+      (hotShare - 0.333) * 0.38 +
+      (driftShare - 0.333) * 0.24 +
+      sleeperPressure -
+      (fullShare - 0.324) * 0.2;
+
+    return Math.max(0.11, score);
+  });
+
+  const colSum = rawColWeights.reduce((a, b) => a + b, 0);
+  const columnProbs = rawColWeights.map((w) => Math.round((w / colSum) * 100));
+  columnProbs[0] += 100 - columnProbs.reduce((a, b) => a + b, 0);
+
+  // Pattern Deviation / Confidence Score
+  const maxDev = Math.max(
+    ...dozenProbs.map((p) => Math.abs(p - 33)),
+    ...columnProbs.map((p) => Math.abs(p - 33))
+  );
+  const sampleBonus = Math.min(8, Math.floor(validSpins.length / 7));
+  const signalScore = Math.min(97, Math.max(66, Math.round(64 + sampleBonus + maxDev * 1.25)));
+
+  // Rolling trend data across chronological order (oldest -> newest)
+  const chronological = [...validSpins].reverse();
+  const trendData = [];
+  const windowSize = Math.min(8, Math.max(3, Math.floor(chronological.length / 3)));
+
+  for (let i = windowSize; i <= chronological.length; i += Math.max(1, Math.floor(chronological.length / 18))) {
+    const slice = chronological.slice(i - windowSize, i);
+    const d1 = slice.filter((n) => getNumberMeta(n).dozen === 1).length;
+    const d2 = slice.filter((n) => getNumberMeta(n).dozen === 2).length;
+    const d3 = slice.filter((n) => getNumberMeta(n).dozen === 3).length;
+    trendData.push({
+      spin: `S${i}`,
+      D1: Math.round((d1 / windowSize) * 100),
+      D2: Math.round((d2 / windowSize) * 100),
+      D3: Math.round((d3 / windowSize) * 100)
+    });
+  }
+
+  // Mini bar history for Dozens & Columns (6 blocks)
+  const buildMiniBars = (type) =>
+    [0, 1, 2].map((targetIdx) => {
+      const bars = [];
+      const chunk = Math.max(1, Math.floor(chronological.length / 6));
+      for (let b = 0; b < 6; b++) {
+        const sub = chronological.slice(b * chunk, (b + 1) * chunk);
+        const hits = sub.filter((n) => {
+          const meta = getNumberMeta(n);
+          return (type === 'dozen' ? meta.dozen : meta.column) === targetIdx + 1;
+        }).length;
+        bars.push(Math.max(18, Math.round((hits / Math.max(1, sub.length)) * 100)));
+      }
+      return bars;
+    });
+
+  return {
+    total: validSpins.length,
+    redCount,
+    blackCount,
+    zeroCount,
+    dozenCounts,
+    columnCounts,
+    dozenDrought,
+    columnDrought,
+    dozenProbs,
+    columnProbs,
+    signalScore,
+    trendData,
+    dozenMiniBars: buildMiniBars('dozen'),
+    columnMiniBars: buildMiniBars('column')
+  };
+};
+
+// Animated Cybernetic Neural Brain Canvas Component
+const NeuralBrainCanvas = ({ isProcessing, modeLabel }) => {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let animationFrameId;
+
+    const resizeCanvas = () => {
+      const parent = canvas.parentElement;
+      if (parent) {
+        canvas.width = parent.clientWidth;
+        canvas.height = parent.clientHeight;
+      }
+    };
+
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    // Generate brain-shaped neural nodes
+    const nodes = [];
+    const numNodes = 62;
+
+    for (let i = 0; i < numNodes; i++) {
+      const angle = (i / numNodes) * Math.PI * 2;
+      const lobeOffset = Math.sin(angle * 2) * 0.14;
+      const rx = 0.36 + lobeOffset + (Math.random() - 0.5) * 0.16;
+      const ry = 0.28 + Math.cos(angle) * 0.05 + (Math.random() - 0.5) * 0.14;
+
+      nodes.push({
+        nx: 0.5 + Math.cos(angle) * rx * (0.38 + Math.random() * 0.65),
+        ny: 0.48 + Math.sin(angle) * ry * (0.38 + Math.random() * 0.65),
+        radius: 1.8 + Math.random() * 2.4,
+        phase: Math.random() * Math.PI * 2,
+        hue: i % 3 === 0 ? '#22d3ee' : i % 3 === 1 ? '#a855f7' : '#34d399'
+      });
+    }
+
+    nodes.push({
+      nx: 0.5,
+      ny: 0.48,
+      radius: 5.5,
+      phase: 0,
+      hue: '#67e8f9',
+      isCore: true
+    });
+
+    let tick = 0;
+
+    const render = () => {
+      tick += isProcessing ? 0.095 : 0.025;
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      // Radial neural aura
+      const auraRadius = Math.min(w, h) * (isProcessing ? 0.45 : 0.38);
+      const grad = ctx.createRadialGradient(w * 0.5, h * 0.48, 5, w * 0.5, h * 0.48, auraRadius);
+      grad.addColorStop(0, isProcessing ? 'rgba(34, 211, 238, 0.28)' : 'rgba(56, 189, 248, 0.12)');
+      grad.addColorStop(0.55, 'rgba(168, 85, 247, 0.08)');
+      grad.addColorStop(1, 'rgba(15, 23, 42, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+
+      // Synaptic connections
+      const maxDist = Math.min(w, h) * 0.22;
+      for (let i = 0; i < nodes.length; i++) {
+        const a = nodes[i];
+        const ax = a.nx * w + Math.sin(tick + a.phase) * 3;
+        const ay = a.ny * h + Math.cos(tick + a.phase) * 3;
+
+        for (let j = i + 1; j < nodes.length; j++) {
+          const b = nodes[j];
+          const bx = b.nx * w + Math.sin(tick + b.phase) * 3;
+          const by = b.ny * h + Math.cos(tick + b.phase) * 3;
+
+          const dist = Math.hypot(ax - bx, ay - by);
+          if (dist < maxDist) {
+            const alpha = (1 - dist / maxDist) * (isProcessing ? 0.6 : 0.28);
+            ctx.beginPath();
+            ctx.moveTo(ax, ay);
+            ctx.lineTo(bx, by);
+            ctx.strokeStyle =
+              (i + j) % 2 === 0
+                ? `rgba(34, 211, 238, ${alpha})`
+                : `rgba(168, 85, 247, ${alpha})`;
+            ctx.lineWidth = isProcessing ? 1.3 : 0.8;
+            ctx.stroke();
+
+            if ((i + j) % 4 === 0) {
+              const pulsePos = (tick * 0.65 + i * 0.2) % 1;
+              const px = ax + (bx - ax) * pulsePos;
+              const py = ay + (by - ay) * pulsePos;
+              ctx.beginPath();
+              ctx.arc(px, py, isProcessing ? 1.9 : 1.1, 0, Math.PI * 2);
+              ctx.fillStyle = '#e0f2fe';
+              ctx.fill();
+            }
+          }
+        }
+      }
+
+      // Neural nodes
+      nodes.forEach((node) => {
+        const x = node.nx * w + Math.sin(tick + node.phase) * 3;
+        const y = node.ny * h + Math.cos(tick + node.phase) * 3;
+        const pulse = 1 + Math.sin(tick * 2 + node.phase) * 0.25;
+
+        ctx.beginPath();
+        ctx.arc(x, y, node.radius * pulse, 0, Math.PI * 2);
+        ctx.fillStyle = node.hue;
+        ctx.shadowColor = node.hue;
+        ctx.shadowBlur = node.isCore ? 20 : isProcessing ? 14 : 6;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      });
+
+      // Outer HUD rotating ring
+      ctx.save();
+      ctx.translate(w * 0.5, h * 0.48);
+      ctx.rotate(tick * 0.16);
+      ctx.beginPath();
+      ctx.arc(0, 0, Math.min(w, h) * 0.41, 0, Math.PI * 1.65);
+      ctx.strokeStyle = isProcessing ? 'rgba(168, 85, 247, 0.4)' : 'rgba(34, 211, 238, 0.22)';
+      ctx.lineWidth = 1.3;
+      ctx.setLineDash([6, 8]);
+      ctx.stroke();
+      ctx.restore();
+
+      animationFrameId = requestAnimationFrame(render);
+    };
+
+    render();
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      window.removeEventListener('resize', resizeCanvas);
+    };
+  }, [isProcessing, modeLabel]);
+
+  return <canvas ref={canvasRef} className="w-full h-full block" />;
+};
+
+// Circular Progress Ring Component for Dozen & Column Predictions
+const PredictionRing = ({ label, sublabel, percentage, accentColor, miniBars, isTop }) => {
+  const radius = 34;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference - (percentage / 100) * circumference;
+
+  const colorMap = {
+    cyan: {
+      stroke: '#22d3ee',
+      glow: 'drop-shadow(0 0 7px rgba(34,211,238,0.6))',
+      bar: 'bg-cyan-400',
+      badge: 'border-cyan-400/70 bg-cyan-500/10'
+    },
+    emerald: {
+      stroke: '#34d399',
+      glow: 'drop-shadow(0 0 7px rgba(52,211,153,0.6))',
+      bar: 'bg-emerald-400',
+      badge: 'border-emerald-400/70 bg-emerald-500/10'
+    },
+    purple: {
+      stroke: '#c084fc',
+      glow: 'drop-shadow(0 0 7px rgba(192,132,252,0.6))',
+      bar: 'bg-purple-400',
+      badge: 'border-purple-400/70 bg-purple-500/10'
+    }
+  };
+
+  const theme = colorMap[accentColor] || colorMap.cyan;
+
+  return (
+    <div
+      className={`relative flex flex-col items-center rounded-xl p-2.5 transition-all border ${
+        isTop
+          ? `${theme.badge} shadow-[0_0_16px_rgba(34,211,238,0.16)] scale-[1.02]`
+          : 'bg-slate-900/75 border-slate-800/90 hover:border-cyan-500/40'
+      }`}
+    >
+      {isTop && (
+        <span className="absolute -top-2 px-1.5 py-0.2 rounded bg-cyan-400 text-slate-950 text-[8px] font-black tracking-wider uppercase">
+          TOP PICK
+        </span>
+      )}
+
+      <div className="relative w-20 h-20 flex items-center justify-center">
+        <svg className="w-full h-full -rotate-90" viewBox="0 0 84 84">
+          <circle
+            cx="42"
+            cy="42"
+            r={radius}
+            fill="transparent"
+            stroke="rgba(51, 65, 85, 0.55)"
+            strokeWidth="7"
+          />
+          <circle
+            cx="42"
+            cy="42"
+            r={radius}
+            fill="transparent"
+            stroke={theme.stroke}
+            strokeWidth="7"
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="round"
+            style={{
+              filter: theme.glow,
+              transition: 'stroke-dashoffset 0.8s cubic-bezier(0.22, 1, 0.36, 1)'
+            }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-base font-extrabold text-white tracking-tight">{percentage}%</span>
+        </div>
+      </div>
+
+      <span className="text-[11px] font-bold text-slate-100 mt-1.5 tracking-wide">{label}</span>
+      {sublabel && <span className="text-[10px] text-slate-400">{sublabel}</span>}
+
+      {miniBars && (
+        <div className="flex items-end gap-1 h-5 mt-2 w-full justify-center px-1">
+          {miniBars.map((val, idx) => (
+            <div
+              key={idx}
+              style={{ height: `${Math.max(20, val)}%` }}
+              className={`w-1.5 rounded-t-sm opacity-85 ${
+                idx === miniBars.length - 1 ? theme.bar : 'bg-slate-600'
+              }`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default function App() {
+  // Spin state & prediction snapshot
+  const [spins, setSpins] = useState(SAMPLE_SPINS);
+  const [predictedStats, setPredictedStats] = useState(() => analyzeSpinsStatistics(SAMPLE_SPINS));
+  const [hasPredictedCurrentData, setHasPredictedCurrentData] = useState(true);
+
+  // Live Screen Share State
+  const [isSharing, setIsSharing] = useState(false);
+  const [streamResolution, setStreamResolution] = useState('');
+  const [autoScanEnabled, setAutoScanEnabled] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [isPredicting, setIsPredicting] = useState(false);
+  const [progress, setProgress] = useState(100);
+
+  // Editing individual spin cells
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [editingValue, setEditingValue] = useState('');
+  const [newSpinValue, setNewSpinValue] = useState('');
+
+  // Manual fallback paste
+  const [manualInput, setManualInput] = useState('');
+  const [showManualInput, setShowManualInput] = useState(false);
+
+  // Logs & 20-Yr Veteran Strategist Verdict
+  const [reasoningLogs, setReasoningLogs] = useState([
+    '20-Year Veteran Roulette Brain v4.2 initialized.',
+    'Live Screen Share OCR pipeline standing by.',
+    'Press EXTRACT DATA to share your phone/game screen and capture live spin history.'
+  ]);
+  const [veteranReport, setVeteranReport] = useState(
+    'VETERAN PIT-BOSS BRIEFING: Ready for live table telemetry. Share your mirrored phone or browser roulette screen and press "EXTRACT DATA" to pull the board history, then press "PREDICTION" for multi-window Dozen & Column sector weighting. Remember: every spin is an independent event—manage unit sizing with strict discipline.'
+  );
+
+  // Session History
+  const [sessionHistory, setSessionHistory] = useState([
+    {
+      id: 'session-init',
+      name: 'Baseline_Table_50.dat',
+      timestamp: 'Ready',
+      spins: SAMPLE_SPINS
+    }
+  ]);
+
+  const [errorBanner, setErrorBanner] = useState('');
+
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+
+  // Live summary counts for the Center-Left Data Matrix
+  const liveMatrixStats = useMemo(() => analyzeSpinsStatistics(spins), [spins]);
+
+  // Exponential backoff helper for Gemini API calls
+  const fetchWithRetry = async (url, options, retries = 3) => {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const res = await fetch(url, options);
+        if (!res.ok) {
+          throw new Error(`HTTP error ${res.status}`);
+        }
+        return await res.json();
+      } catch (err) {
+        if (i === retries - 1) throw err;
+        await new Promise((r) => setTimeout(r, Math.pow(2, i) * 1000));
+      }
+    }
+  };
+
+  // Stop live screen sharing cleanly
+  const stopScreenShare = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsSharing(false);
+    setAutoScanEnabled(false);
+    setStreamResolution('');
+    setReasoningLogs((prev) => [...prev.slice(-4), 'Live screen share stream disconnected.']);
+  }, []);
+
+  // Cleanup stream on unmount
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
+
+  // Start Screen Share via navigator.mediaDevices.getDisplayMedia
+  const startScreenShare = async () => {
+    setErrorBanner('');
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+      setErrorBanner(
+        'Screen sharing is not supported in this browser context. Use desktop Chrome/Edge/Firefox or paste numbers manually.'
+      );
+      return null;
+    }
+
+    try {
+      const mediaStream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          cursor: 'never'
+        },
+        audio: false
+      });
+
+      streamRef.current = mediaStream;
+      setIsSharing(true);
+
+      // Handle user clicking browser's built-in "Stop sharing" bar
+      const videoTrack = mediaStream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.onended = () => {
+          stopScreenShare();
+        };
+      }
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+        await new Promise((resolve) => {
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current.play().then(resolve).catch(resolve);
+          };
+        });
+        // Small stabilization delay so first frame is crisp
+        await new Promise((r) => setTimeout(r, 350));
+        setStreamResolution(`${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`);
+      }
+
+      return mediaStream;
+    } catch (err) {
+      setIsSharing(false);
+      if (err?.name === 'NotAllowedError') {
+        setErrorBanner(
+          'Screen share permission was cancelled. Click "EXTRACT DATA" and select the window or phone-mirror s
